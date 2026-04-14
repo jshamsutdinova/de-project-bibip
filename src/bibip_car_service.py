@@ -96,11 +96,11 @@ class CarService:
 
         row = f"{sale.sales_number};{sale.car_vin};{sale.sales_date.isoformat()};{sale.cost}"
         row = row.ljust(500) + '\n'
-        
+
         with open(data_fpath, 'r+') as f:
             f.seek(line_number * (501))
             f.write(row)
-        
+
         with open(index_fpath, 'r+') as f:
             lines = f.readlines()
             index = []
@@ -115,7 +115,7 @@ class CarService:
 
             for number, ln in index:
                 f.write(f"{number};{ln}\n")
-            
+
             car_index_fpath = self._get_index_file('cars')
             car_data_fpath = self._get_data_file('cars')
 
@@ -124,25 +124,26 @@ class CarService:
                 for num, row in enumerate(lines):
                     vin, ln = row.strip().split(';')
                     if vin == sale.car_vin:
-                        line_num = int(ln) 
-                        
+                        line_num = int(ln)
+
             with open(car_data_fpath, 'r+') as f:
                 f.seek(line_num * 501)
                 row = f.read(500).strip()
-                
+
                 vin, model, price, date, status = row.split(';')
-                
+
                 car = Car(
-                    vin = vin,
-                    model = int(model),
-                    price = Decimal(price),
-                    date_start = datetime.strptime(date, '%Y-%m-%dT%H:%M:%S').date(),  # is it date format obj?
-                    status = CarStatus(status)
+                    vin=vin,
+                    model=int(model),
+                    price=Decimal(price),
+                    date_start=datetime.strptime(
+                        date, '%Y-%m-%dT%H:%M:%S').date(),
+                    status=CarStatus(status)
                 )
-        
+
                 # Change status of car
                 car.status = CarStatus.sold
-                
+
                 new_row = f"{car.vin};{car.model};{car.price};{car.date_start.isoformat()};{car.status.value}"
                 new_row = new_row.ljust(500) + '\n'
 
@@ -150,10 +151,29 @@ class CarService:
                 f.write(new_row)
 
         return car
-             
+
     # Задание 3. Доступные к продаже
     def get_cars(self, status: CarStatus) -> list[Car]:
-        raise NotImplementedError
+        """Return available models of cars for selling right now."""
+        car_data_fpath = self._get_data_file('cars')
+
+        available_cars = []
+        with open(car_data_fpath, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                vin_car, model, price, date, car_status = line.strip().split(';')
+
+                if CarStatus(car_status) == status:
+                    car = Car(
+                        vin=vin_car,
+                        model=int(model),
+                        price=Decimal(price),
+                        date_start=datetime.strptime(date, '%Y-%m-%dT%H:%M:%S').date(),
+                        status=status
+                    )
+                    available_cars.append(car)
+
+        return available_cars
 
     # Задание 4. Детальная информация
     def get_car_info(self, vin: str) -> CarFullInfo | None:
@@ -166,22 +186,22 @@ class CarService:
             for num, row in enumerate(lines):
                 vin_idx, ln = row.strip().split(';')
                 if vin_idx == vin:
-                    line_num = int(ln) 
-                    
+                    line_num = int(ln)
+
         with open(car_data_fpath, 'r+') as f:
             f.seek(line_num * 501)
             row = f.read(500).strip()
-            
+
             vin, model, price, date, status = row.split(';')
-            
+
             car = Car(
-                vin = vin,
-                model = int(model),
-                price = Decimal(price),
-                date_start = datetime.strptime(date, '%Y-%m-%dT%H:%M:%S').date(),  # is it date format obj?
-                status = CarStatus(status)
+                vin=vin,
+                model=int(model),
+                price=Decimal(price),
+                date_start=datetime.strptime(date, '%Y-%m-%dT%H:%M:%S').date(),  # is it date format obj?
+                status=CarStatus(status)
             )
-            
+
         return CarFullInfo(
             vin=vin,
             car_model_name="",
