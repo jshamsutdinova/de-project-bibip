@@ -177,45 +177,140 @@ class CarService:
 
     # Задание 4. Детальная информация
     def get_car_info(self, vin: str) -> CarFullInfo | None:
-        """Return updated info about car after selling."""
-        car_index_fpath = self._get_index_file('cars')
+        """Return detailed info about car by VIN."""
+        car_index_fpath = self._get_index_file('cars')  # find the path in the init()?
         car_data_fpath = self._get_data_file('cars')
 
-        with open(car_index_fpath, 'r+') as f:
-            lines = f.readlines()
-            for num, row in enumerate(lines):
+        model_index_fpath = self._get_index_file('models')
+        model_data_fpath = self._get_data_file('models')
+
+        line_num = None
+
+        with open(car_index_fpath, 'r') as f:
+            for row in f:
                 vin_idx, ln = row.strip().split(';')
                 if vin_idx == vin:
                     line_num = int(ln)
+                    break
+        if line_num is None:
+            return None
 
-        with open(car_data_fpath, 'r+') as f:
-            f.seek(line_num * 501)
+        with open(car_data_fpath, 'r') as f:
+            f.seek(line_num * 501)  # separate to method.
             row = f.read(500).strip()
+            car_vin, model, car_price, date, status = row.split(';')
 
-            vin, model, price, date, status = row.split(';')
+        line_num_model = None
 
-            car = Car(
-                vin=vin,
-                model=int(model),
-                price=Decimal(price),
-                date_start=datetime.strptime(date, '%Y-%m-%dT%H:%M:%S').date(),  # is it date format obj?
-                status=CarStatus(status)
-            )
+        with open(model_index_fpath, 'r') as f:
+            for row in f:
+                model_id, ln = row.strip().split(';')
+                if model_id == model:
+                    line_num_model = int(ln)
+                    break
 
-        return CarFullInfo(
-            vin=vin,
-            car_model_name="",
-            car_model_brand="",
-            price=Decimal(price),
-            date_start=datetime.fromisoformat(date),
+        if line_num_model is None:
+            return None
+
+        with open(model_data_fpath, 'r') as f:
+            f.seek(line_num_model * 501)  # separate to method for finding row.
+            row = f.read(500)
+            _, name, brand = row.strip().split(';')
+
+        sales_date = None
+        sales_cost = None
+
+        if status == CarStatus.sold.value:
+            sales_data_fpath = self._get_data_file('sales')
+            with open(sales_data_fpath, 'r') as f:
+                for row in f:
+                    _, s_car_vin, s_date, cost = row.strip().split(';')
+                    if car_vin == s_car_vin:
+                        sales_date = datetime.strptime(
+                            s_date, '%Y-%m-%dT%H:%M:%S').date()
+                        sales_cost = Decimal(cost)
+                        break
+
+        car_full_info = CarFullInfo(
+            vin=car_vin,
+            car_model_name=name,
+            car_model_brand=brand,
+            price=Decimal(car_price),
+            date_start=datetime.strptime(
+                date, '%Y-%m-%dT%H:%M:%S').date(),  # why date recorded with time?
             status=CarStatus(status),
-            sales_date=None,
-            sales_cost=None,
+            sales_date=sales_date,
+            sales_cost=sales_cost
         )
+
+        return car_full_info
 
     # Задание 5. Обновление ключевого поля
     def update_vin(self, vin: str, new_vin: str) -> Car:
-        raise NotImplementedError
+        """Update VIN in car table."""
+        car_index_path = self._get_index_file('cars')
+        car_data_path = self._get_data_file('cars')
+        sales_data_path = self._get_data_file('sales')
+
+        line_number = None
+        index_updated = []
+        with open(car_index_path, 'r+') as f:
+            for row in f:
+                vin_idx, ln_num = row.strip().split(';')
+                ln_num = int(ln_num)
+
+                if vin_idx == vin:
+                    vin_idx = new_vin
+                    line_number = ln_num
+
+                index_updated.append((vin_idx, ln_num))
+
+        if line_number is None:
+            return None
+
+        index_updated = SortedList(index_updated, key=lambda x: x[0])
+        with open(car_index_path, 'r+') as f:
+            for vin_idx, ln in index_updated:
+                f.write(f"{vin_idx};{ln}\n")
+
+        with open(car_data_path, 'r+') as f:
+            f.seek(line_number * 501)
+            row = f.read(500)
+
+            vin_car, model, price, date_start, status = row.strip().split(';')
+
+            new_row = f'{new_vin};{model};{price};{date_start};{status}'
+            new_row = new_row.ljust(500) + '\n'
+
+            f.seek(line_number * 501)  # return to the line.
+            f.write(new_row)
+
+        sales_updated = []
+        with open(sales_data_path, 'r+') as f:
+            for row in f:
+                sales_number, car_vin, sales_date, cost = row.strip().split(';')
+
+                if car_vin == vin:
+                    car_vin = new_vin
+
+                sales_updated.append((sales_number, car_vin, sales_date, cost))
+
+        with open(sales_data_path, 'r+') as f:
+            for s in sales_updated:
+                row = f"{s[0]};{s[1]};{s[2]};{s[3]}".ljust(500) + '\n'
+                f.write(row)
+
+        car_updated = Car(
+            vin=new_vin,
+            model=int(model),
+            price=Decimal(price),
+            date_start=datetime.strptime(
+                date_start, '%Y-%m-%dT%H:%M:%S').date(),
+            status=CarStatus(status)
+        )
+
+        return car_updated
+
 
     # Задание 6. Удаление продажи
     def revert_sale(self, sales_number: str) -> Car:
