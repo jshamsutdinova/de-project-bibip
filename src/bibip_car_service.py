@@ -40,8 +40,10 @@ class CarService:
             return f.read(501)
 
     def _write_line(self, data_fpath: Path, line_number: int, row: str) -> None:
-        pass
-
+        """Write a row with fixed length (500) on the line number to the file."""
+        with open(data_fpath, 'r+') as f:
+            f.seek(line_number * 501)
+            f.write(row)
     # Задание 1. Сохранение автомобилей и моделей
     def add_model(self, model: Model) -> Model:
         """Add new model to the database."""
@@ -350,12 +352,39 @@ class CarService:
             return None
 
         sale_row = self._read_line(sales_data_path, sale_line_number)
-        sales_number, car_vin, sales_date, cost = sale_row.strip().split(';')
-        
-        
-        
-        
+        vals = sale_row.strip().split(';')
+        sales_number, car_vin, sales_date, cost, is_deleted = vals
+        is_deleted = (is_deleted == 'True')
+
+        if not is_deleted:
+            new_row = f"{sales_number};{car_vin};{sales_date};{cost};{True}"
+            new_row = new_row.ljust(500) + '\n'
+            self._write_line(sales_data_path, sale_line_number, new_row)
+
+            car_index_fpath = self._get_index_file('cars')
+            car_data_fpath = self._get_data_file('cars')
+
+            car_line_number = self._find_line(car_index_fpath, car_vin)
+            car_row = self._read_line(car_data_fpath, car_line_number)
+            car_vals = car_row.strip().split(';')
+            vin, model, price, date_start, status = car_vals
+
+            new_status = CarStatus.available.value
+            car_new_row = f"{vin};{model};{price};{date_start};{new_status}"
+            car_new_row = car_new_row.ljust(500) + '\n'
+            self._write_line(car_data_fpath, car_line_number, car_new_row)
+
+            car = Car(
+                vin=vin,
+                model=int(model),
+                price=Decimal(price),
+                date_start=datetime.strptime(
+                    date_start, '%Y-%m-%dT%H:%M:%S').date(),
+                status=CarStatus(new_status)
+            )
+
+            return car
 
     # Задание 7. Самые продаваемые модели
     def top_models_by_sales(self) -> list[ModelSaleStats]:
-        raise NotImplementedError
+        """Find top 3 models by sales number."""
