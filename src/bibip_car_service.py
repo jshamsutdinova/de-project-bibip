@@ -24,6 +24,24 @@ class CarService:
             fpath.touch()
         return fpath
 
+    def _find_line(self, index_fpath: Path, key: str) -> int | None:
+        """Find line number by key in index file."""
+        with open(index_fpath, 'r') as f:
+            for row in f:
+                idx, line_number = row.strip().split(';')
+                if idx == key:
+                    return int(line_number)
+        return None
+
+    def _read_line(self, data_fpath: Path, line_number: int) -> str:
+        """Read a line by line_number from a fixed-length record file."""
+        with open(data_fpath, 'r') as f:
+            f.seek(line_number * 501)
+            return f.read(501)
+
+    def _write_line(self, data_fpath: Path, line_number: int, row: str) -> None:
+        pass
+
     # Задание 1. Сохранение автомобилей и моделей
     def add_model(self, model: Model) -> Model:
         """Add new model to the database."""
@@ -94,7 +112,7 @@ class CarService:
         file_size = data_fpath.stat().st_size
         line_number = file_size // 501
 
-        row = f"{sale.sales_number};{sale.car_vin};{sale.sales_date.isoformat()};{sale.cost}"
+        row = f"{sale.sales_number};{sale.car_vin};{sale.sales_date.isoformat()};{sale.cost};{False}"
         row = row.ljust(500) + '\n'
 
         with open(data_fpath, 'r+') as f:
@@ -119,16 +137,16 @@ class CarService:
             car_index_fpath = self._get_index_file('cars')
             car_data_fpath = self._get_data_file('cars')
 
-            with open(car_index_fpath, 'r+') as f:
-                lines = f.readlines()
-                for num, row in enumerate(lines):
+            with open(car_index_fpath, 'r+') as f_idx:
+                lines = f_idx.readlines()
+                for _, row in enumerate(lines):
                     vin, ln = row.strip().split(';')
                     if vin == sale.car_vin:
                         line_num = int(ln)
 
-            with open(car_data_fpath, 'r+') as f:
-                f.seek(line_num * 501)
-                row = f.read(500).strip()
+            with open(car_data_fpath, 'r+') as f_data:
+                f_data.seek(line_num * 501)
+                row = f_data.read(500).strip()
 
                 vin, model, price, date, status = row.split(';')
 
@@ -147,8 +165,8 @@ class CarService:
                 new_row = f"{car.vin};{car.model};{car.price};{car.date_start.isoformat()};{car.status.value}"
                 new_row = new_row.ljust(500) + '\n'
 
-                f.seek(line_num * 501)
-                f.write(new_row)
+                f_data.seek(line_num * 501)
+                f_data.write(new_row)
 
         return car
 
@@ -224,8 +242,11 @@ class CarService:
             sales_data_fpath = self._get_data_file('sales')
             with open(sales_data_fpath, 'r') as f:
                 for row in f:
-                    _, s_car_vin, s_date, cost = row.strip().split(';')
-                    if car_vin == s_car_vin:
+                    vals = row.strip().split(';')
+                    _, s_car_vin, s_date, cost, is_deleted = vals
+                    is_deleted = (is_deleted == 'True')
+
+                    if car_vin == s_car_vin and not is_deleted:
                         sales_date = datetime.strptime(
                             s_date, '%Y-%m-%dT%H:%M:%S').date()
                         sales_cost = Decimal(cost)
@@ -288,16 +309,22 @@ class CarService:
         sales_updated = []
         with open(sales_data_path, 'r+') as f:
             for row in f:
-                sales_number, car_vin, sales_date, cost = row.strip().split(';')
+                row = row.strip()
+                sales_num, car_vin, sales_dt, cost, is_deleted = row.split(';')
+                is_deleted = (is_deleted == 'True')
 
-                if car_vin == vin:
+                if car_vin == vin and not is_deleted:
                     car_vin = new_vin
 
-                sales_updated.append((sales_number, car_vin, sales_date, cost))
+                sales_updated.append((sales_num, car_vin, sales_dt, cost,
+                                      is_deleted))
 
         with open(sales_data_path, 'r+') as f:
+            f.seek(0)
+            f.truncate()
+
             for s in sales_updated:
-                row = f"{s[0]};{s[1]};{s[2]};{s[3]}".ljust(500) + '\n'
+                row = f"{s[0]};{s[1]};{s[2]};{s[3]};{s[4]}".ljust(500) + '\n'
                 f.write(row)
 
         car_updated = Car(
@@ -311,10 +338,23 @@ class CarService:
 
         return car_updated
 
-
     # Задание 6. Удаление продажи
     def revert_sale(self, sales_number: str) -> Car:
-        raise NotImplementedError
+        """Delete sale from the database."""
+        sale_index_path = self._get_index_file('sales')
+        sales_data_path = self._get_data_file('sales')
+
+        sale_line_number = self._find_line(sale_index_path, sales_number)
+
+        if sale_line_number is None:
+            return None
+
+        sale_row = self._read_line(sales_data_path, sale_line_number)
+        sales_number, car_vin, sales_date, cost = sale_row.strip().split(';')
+        
+        
+        
+        
 
     # Задание 7. Самые продаваемые модели
     def top_models_by_sales(self) -> list[ModelSaleStats]:
