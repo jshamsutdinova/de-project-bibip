@@ -1,5 +1,6 @@
 from decimal import Decimal
 from datetime import datetime
+from itertools import islice
 from pathlib import Path
 from sortedcontainers import SortedList
 
@@ -44,6 +45,7 @@ class CarService:
         with open(data_fpath, 'r+') as f:
             f.seek(line_number * 501)
             f.write(row)
+
     # Задание 1. Сохранение автомобилей и моделей
     def add_model(self, model: Model) -> Model:
         """Add new model to the database."""
@@ -388,3 +390,60 @@ class CarService:
     # Задание 7. Самые продаваемые модели
     def top_models_by_sales(self) -> list[ModelSaleStats]:
         """Find top 3 models by sales number."""
+        sale_data_path = self._get_data_file('sales')
+        cars_data_path = self._get_data_file('cars')
+        models_data_path = self._get_data_file('models')
+
+        vin_to_model = {}
+        model_max_price = {}
+        with open(cars_data_path, 'r') as f:
+            for row in f:
+                vals = row.strip().split(';')
+                vin, model_id, price, date_start, status = vals
+                model_id = int(model_id)
+
+                vin_to_model[vin] = model_id
+
+                if model_id not in model_max_price:
+                    model_max_price[model_id] = Decimal(price)
+                else:
+                    model_max_price[model_id] = max(
+                        model_max_price[model_id],
+                        Decimal(price)
+                    )
+
+        model_info = {}
+        with open(models_data_path, 'r') as f:
+            for row in f:
+                id, name, brand = row.strip().split(';', maxsplit=2)
+                model_info[int(id)] = (name, brand)
+
+        saled_models = {}
+        with open(sale_data_path, 'r') as f:
+            for row in f:
+                vals = row.strip().split(';')
+                sales_num, car_vin, sales_dt, cost, is_deleted = vals
+                is_deleted = (is_deleted == 'True')
+
+                if is_deleted:
+                    continue
+
+                model_id = vin_to_model.get(car_vin)
+                saled_models[model_id] = saled_models.get(model_id, 0) + 1
+
+        sorted_models = sorted(
+            saled_models.items(),
+            key=lambda x: (-x[1], -model_max_price[x[0]]))
+
+        result = []
+        for model_id, count in sorted_models[:3]:
+            name, brand = model_info[model_id]
+            result.append(
+                ModelSaleStats(
+                    car_model_name=name,
+                    brand=brand,
+                    sales_number=count
+                )
+            )
+
+        return result
