@@ -40,7 +40,7 @@ class Sale(BaseModel):
     is_deleted: bool = False
 
     def index(self) -> str:
-        return self.car_vin
+        return self.sales_number
 
 
 class CarFullInfo(BaseModel):
