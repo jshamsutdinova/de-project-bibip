@@ -24,7 +24,7 @@ class CarService:
             fpath.touch()
         return fpath
 
-    def _find_line(self, index_fpath: Path, key: str) -> int | None:
+    def _find_line_by_key(self, index_fpath: Path, key: str) -> int | None:
         """Find line number by key in index file."""
         key = str(key)
         with open(index_fpath, 'r') as f:
@@ -33,6 +33,12 @@ class CarService:
                 if idx == key:
                     return int(line_number)
         return None
+
+    def _find_line_number(self, data_fpath: Path) -> int:
+        """Find line number for new record."""
+        file_size = data_fpath.stat().st_size
+        line_number = file_size // 501
+        return line_number
 
     def _read_line(self, data_fpath: Path, line_number: int) -> str:
         """Read a line by line_number from a fixed-length record file."""
@@ -63,49 +69,14 @@ class CarService:
             for id, ln in indexes:
                 f.write(f"{id};{ln}\n")
 
-    def _parse_car(self, row: str) -> Car:
-        """Parse the row of the Car data table."""
-        vin, model, price, date_start, status = row.strip().split(';', 4)
-        return Car(
-            vin=vin,
-            model=int(model),
-            price=Decimal(price),
-            date_start=datetime.fromisoformat(date_start),
-            status=CarStatus(status)
-        )
-
-    def _parse_model(self, row: str) -> Model:
-        """Parse the row of the Model data table."""
-        id, name, brand = row.strip().split(';', 2)
-        return Model(
-            id=int(id),
-            name=name,
-            brand=brand
-        )
-
-    def _parse_sale(self, row: str) -> Sale:
-        """Parse the row of the Sale data table."""
-        s_num, car_vin, s_dt, cost, is_deleted = row.strip().split(';', 4)
-        is_deleted = (is_deleted == 'True')
-        return Sale(
-            sales_number=s_num,
-            car_vin=car_vin,
-            sales_date=datetime.fromisoformat(s_dt),
-            cost=Decimal(cost),
-            is_deleted=is_deleted
-        )
-
     # Задание 1. Сохранение автомобилей и моделей
     def add_model(self, model: Model) -> Model:
         """Add new model to the database."""
         data_fpath = self._get_data_file('models')
         index_fpath = self._get_index_file('models')
 
-        file_size = data_fpath.stat().st_size
-        line_number = file_size // 501
-
-        row = f"{model.id};{model.name};{model.brand}".ljust(500) + "\n"
-
+        line_number = self._find_line_number(data_fpath)
+        row = model.serialize()
         self._write_line(data_fpath, line_number, row)
         self._add_new_index(index_fpath, line_number, model)
 
@@ -115,12 +86,8 @@ class CarService:
         data_fpath = self._get_data_file('cars')
         index_fpath = self._get_index_file('cars')
 
-        file_size = data_fpath.stat().st_size
-        line_number = file_size // 501
-
-        row = f"{car.vin};{car.model};{car.price};{car.date_start.isoformat()};{car.status.value}"
-        row = row.ljust(500) + "\n"
-
+        line_number = self._find_line_number(data_fpath)
+        row = car.serialize()
         self._write_line(data_fpath, line_number, row)
         self._add_new_index(index_fpath, line_number, car)
 
@@ -130,12 +97,8 @@ class CarService:
         data_fpath = self._get_data_file('sales')
         index_fpath = self._get_index_file('sales')
 
-        file_size = data_fpath.stat().st_size
-        line_number = file_size // 501
-
-        row = f"{sale.sales_number};{sale.car_vin};{sale.sales_date.isoformat()};{sale.cost};{False}"
-        row = row.ljust(500) + '\n'
-
+        line_number = self._find_line_number(data_fpath)
+        row = sale.serialize()
         self._write_line(data_fpath, line_number, row)
         self._add_new_index(index_fpath, line_number, sale)
 
@@ -144,18 +107,14 @@ class CarService:
         car_data_fpath = self._get_data_file('cars')
 
         # Find record in the Car table
-        car_line_num = self._find_line(car_index_fpath, sale.car_vin)
+        car_line_num = self._find_line_by_key(car_index_fpath, sale.car_vin)
+        row = self._read_line(car_data_fpath, car_line_num)
+        car = Car.parse_row(row)
 
-        with open(car_data_fpath, 'r+') as f_data:
-            f_data.seek(car_line_num * 501)
-            row = f_data.read(500).strip()
-            car = self._parse_car(row)
-
-            # Change status of car
-            car.status = CarStatus.sold
-            new_row = f"{car.vin};{car.model};{car.price};{car.date_start.isoformat()};{car.status.value}"
-            new_row = new_row.ljust(500) + '\n'
-            self._write_line(car_data_fpath, car_line_num, new_row)
+        # Change status of car
+        car.status = CarStatus.sold
+        new_row = car.serialize()
+        self._write_line(car_data_fpath, car_line_num, new_row)
 
         return car
 
@@ -167,7 +126,7 @@ class CarService:
         available_cars = []
         with open(car_data_fpath, 'r') as f:
             for row in f:
-                car = self._parse_car(row)
+                car = Car.parse_row(row)
                 if car.status == status:
                     available_cars.append(car)
 
@@ -176,7 +135,7 @@ class CarService:
     # Задание 4. Детальная информация
     def get_car_info(self, vin: str) -> CarFullInfo | None:
         """Return detailed info about car by VIN."""
-        car_index_fpath = self._get_index_file('cars')  # find the path in the init()?
+        car_index_fpath = self._get_index_file('cars')
         car_data_fpath = self._get_data_file('cars')
 
         model_index_fpath = self._get_index_file('models')
@@ -184,23 +143,23 @@ class CarService:
 
         # Find a record in Car table
         car_line_num = None
-        car_line_num = self._find_line(car_index_fpath, vin)
+        car_line_num = self._find_line_by_key(car_index_fpath, vin)
 
         if car_line_num is None:
             return None
 
         row = self._read_line(car_data_fpath, car_line_num)
-        car = self._parse_car(row)
+        car = Car.parse_row(row)
 
         # Find a record in Model table
         model_line_num = None
-        model_line_num = self._find_line(model_index_fpath, car.model)
+        model_line_num = self._find_line_by_key(model_index_fpath, car.model)
 
         if model_line_num is None:
             return None
 
         row = self._read_line(model_data_fpath, model_line_num)
-        model = self._parse_model(row)
+        model = Model.parse_row(row)
 
         sales_date = None
         sales_cost = None
@@ -208,7 +167,7 @@ class CarService:
             sales_data_fpath = self._get_data_file('sales')
             with open(sales_data_fpath, 'r') as f:
                 for row in f:
-                    sale = self._parse_sale(row)
+                    sale = Sale.parse_row(row)
 
                     if car.vin == sale.car_vin and not sale.is_deleted:
                         sales_date = sale.sales_date
@@ -258,16 +217,16 @@ class CarService:
                 f.write(f"{vin_idx};{ln}\n")
 
         row = self._read_line(car_data_path, line_number)
-        car = self._parse_car(row)
+        car = Car.parse_row(row)
 
-        new_row = f'{new_vin};{car.model};{car.price};{car.date_start};{car.status}'
-        new_row = new_row.ljust(500) + '\n'
+        car.vin = new_vin
+        new_row = car.serialize()
         self._write_line(car_data_path, line_number, new_row)
 
         sales_updated = []
         with open(sales_data_path, 'r+') as f:
             for row in f:
-                sale = self._parse_sale(row)
+                sale = Sale.parse_row(row)
 
                 if sale.car_vin == vin and not sale.is_deleted:
                     sale.car_vin = new_vin
@@ -283,7 +242,7 @@ class CarService:
             f.truncate()
 
             for s in sales_updated:
-                row = f"{s[0]};{s[1]};{s[2]};{s[3]};{s[4]}".ljust(500) + '\n'
+                row = s.serialize()
                 f.write(row)
 
         car_updated = Car(
@@ -302,37 +261,39 @@ class CarService:
         sale_index_path = self._get_index_file('sales')
         sales_data_path = self._get_data_file('sales')
 
-        sale_line_number = self._find_line(sale_index_path, sales_number)
+        sale_line_number = self._find_line_by_key(sale_index_path,
+                                                  sales_number)
 
         if sale_line_number is None:
             return None
 
         sale_row = self._read_line(sales_data_path, sale_line_number)
-        sale = self._parse_sale(sale_row)
+        sale = Sale.parse_row(sale_row)
 
         if not sale.is_deleted:
-            new_row = f"{sales_number};{sale.car_vin};{sale.sales_date};{sale.cost};{True}"
-            new_row = new_row.ljust(500) + '\n'
+            sale.sales_number = sales_number
+            sale.is_deleted = True
+            new_row = sale.serialize()
             self._write_line(sales_data_path, sale_line_number, new_row)
 
             car_index_fpath = self._get_index_file('cars')
             car_data_fpath = self._get_data_file('cars')
 
-            car_line_number = self._find_line(car_index_fpath, sale.car_vin)
+            car_line_number = self._find_line_by_key(car_index_fpath,
+                                                     sale.car_vin)
             car_row = self._read_line(car_data_fpath, car_line_number)
-            car = self._parse_car(car_row)
+            car = Car.parse_row(car_row)
 
-            new_status = CarStatus.available.value
-            car_new_row = f"{car.vin};{car.model};{car.price};{car.date_start};{new_status}"
-            car_new_row = car_new_row.ljust(500) + '\n'
-            self._write_line(car_data_fpath, car_line_number, car_new_row)
+            car.status = CarStatus.available
+            new_row_car = car.serialize()
+            self._write_line(car_data_fpath, car_line_number, new_row_car)
 
             car = Car(
                 vin=car.vin,
                 model=car.model,
                 price=car.price,
                 date_start=car.date_start,
-                status=new_status
+                status=car.status
             )
 
             return car
@@ -348,7 +309,7 @@ class CarService:
         model_max_price = {}
         with open(cars_data_path, 'r') as f:
             for row in f:
-                car = self._parse_car(row)
+                car = Car.parse_row(row)
 
                 vin_to_model[car.vin] = car.model
 
@@ -363,13 +324,13 @@ class CarService:
         model_info = {}
         with open(models_data_path, 'r') as f:
             for row in f:
-                model = self._parse_model(row)
+                model = Model.parse_row(row)
                 model_info[model.id] = (model.name, model.brand)
 
         saled_models = {}
         with open(sale_data_path, 'r') as f:
             for row in f:
-                sale = self._parse_sale(row)
+                sale = Sale.parse_row(row)
 
                 if sale.is_deleted:
                     continue
